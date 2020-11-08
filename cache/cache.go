@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"errors"
 	"hash/fnv"
+	"log"
 	"sync"
 	"time"
 )
@@ -25,6 +26,8 @@ Mainly memcached API like interfaces
 7. Cache Stats
 8. Logging actions and background jobs
 9. Benchmarking
+10. client-server architecture
+10.1. unload server side, set some of the work to client-side
 
 TODO:
 1. Implement item specific ttl independent from cache `defaultExpiration`
@@ -35,7 +38,7 @@ type Cache interface {
 	Set(key string, data []byte)
 	// Gets item by provided key, returns nil if cache misses
 	Get(key string) []byte
-	// Removes item from cache by provided key
+	// Removes the item from cache by provided key, does nothing if key not in the cache
 	Remove(key string)
 	// Return all cached items size in byte
 	Size() uint64
@@ -59,8 +62,8 @@ type Item struct {
 }
 
 var (
-	// ErrMaxMemorySize -
-	ErrMaxMemorySize = errors.New("Maximum memory size reached")
+	// ErrMaxCacheSize -
+	ErrMaxCacheSize = errors.New("Maximum cache size reached")
 )
 
 // Size method returns raw data size in byte
@@ -69,6 +72,10 @@ func (it *Item) Size() uint64 {
 }
 
 func (c *cache) Size() uint64 {
+	c.Lock()
+	defer c.Unlock()
+
+	return c.size
 
 }
 
@@ -79,18 +86,38 @@ func (c *cache) Set(key string, data []byte) {
 	defer c.Unlock()
 
 	c.set(key, data)
-
-}
-func (c *cache) Get(key uint64) []Item {
-
-}
-func (c *cache) Remove(uint64) {
-
 }
 
-func (c *cache) set(key string, data []byte) error {
+// Gets the item from the cache,
+// returns item if found or nil
+func (c *cache) Get(key string) []byte {
+	c.RLock()
+	defer c.RUnlock()
+
+	return c.get(key)
+
+}
+func (c *cache) Remove(key string) {
+	c.Lock()
+	defer c.Unlock()
+
+	hash := gethashkey(key)
+	c.remove(hash)
+
+}
+
+func (c *cache) set(key string, data []byte) {
 	size := uint64(len(data))
-	hash := hashkey(key)
+	// check if item
+	if err := c.checkSize(size); err != nil {
+		log.Println(err)
+		return
+	}
+	// free up the cache size for new item to set,
+	// by lru eviction policy
+	c.ensureCapacity(size)
+
+	hash := gethashkey(key)
 	c.items[hash] = &Item{
 		data:       data,
 		timeToLive: c.timeToLive,
@@ -98,16 +125,25 @@ func (c *cache) set(key string, data []byte) error {
 		size:       size,
 	}
 	c.size += size
-
 }
 
-// Give a new item to store to the chache,
-// check if item's size won't overflow the chache capacity.
+// Give a new item to store to the cache,
+// check if item's size won't overflow the cache capacity.
 func (c *cache) checkSize(size uint64) error {
 	if c.cap <= size {
-		return ErrMaxMemorySize
+		return ErrMaxCacheSize
 	}
 	return nil
+}
+
+func (c *cache) get(key string) []byte {
+	hash := gethashkey(key)
+	item, found := c.items[hash]
+	if !found {
+		return nil
+	}
+	c.hashList.MoveToFront(item.element)
+	return item.data
 }
 
 // A function to record the given hashkey and mark it as last to be evicted
@@ -123,10 +159,10 @@ func (c *cache) setHashelement(hashkey uint64) *list.Element {
 // evict items according to the eviction policy until there is room.
 // The caller should hold the cache lock.
 func (c *cache) ensureCapacity(toAdd uint64) {
-	mustRemove := int64(c.size+toAdd) - int64(c.cap)
+	mustRemove := (c.size + toAdd) - c.cap
 	for mustRemove > 0 {
 		hash := c.hashList.Back().Value.(uint64)
-		mustRemove -= int64(c.items[hash].Size())
+		mustRemove -= c.items[hash].Size()
 		c.remove(hash)
 	}
 }
@@ -149,6 +185,6 @@ func hashFunc(b []byte) uint64 {
 }
 
 // returns 64-bit hash
-func hashkey(k string) uint64 {
+func gethashkey(k string) uint64 {
 	return hashFunc([]byte(k))
 }
