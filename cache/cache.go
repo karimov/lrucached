@@ -37,7 +37,7 @@ type Cache interface {
 	// Sets new item to cache by provided key, or updates if such key's item cached already
 	Set(key string, data []byte)
 	// Gets item by provided key, returns nil if cache misses
-	Get(key string) []byte
+	Get(key string) ([]byte, bool)
 	// Removes the item from cache by provided key, does nothing if key not in the cache
 	Remove(key string)
 	// Return all cached items size in byte
@@ -90,7 +90,7 @@ func (c *cache) Set(key string, data []byte) {
 
 // Gets the item from the cache,
 // returns item if found or nil
-func (c *cache) Get(key string) []byte {
+func (c *cache) Get(key string) ([]byte, bool) {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -108,16 +108,19 @@ func (c *cache) Remove(key string) {
 
 func (c *cache) set(key string, data []byte) {
 	size := uint64(len(data))
+	hash := gethashkey(key)
+
 	// check if item
 	if err := c.checkSize(size); err != nil {
 		log.Println(err)
 		return
 	}
+	// remove first if exists such item
+	c.remove(hash)
 	// free up the cache size for new item to set,
 	// by lru eviction policy
 	c.ensureCapacity(size)
 
-	hash := gethashkey(key)
 	c.items[hash] = &Item{
 		data:       data,
 		timeToLive: c.timeToLive,
@@ -136,14 +139,14 @@ func (c *cache) checkSize(size uint64) error {
 	return nil
 }
 
-func (c *cache) get(key string) []byte {
+func (c *cache) get(key string) ([]byte, bool) {
 	hash := gethashkey(key)
 	item, found := c.items[hash]
 	if !found {
-		return nil
+		return nil, false
 	}
 	c.hashList.MoveToFront(item.element)
-	return item.data
+	return item.data, true
 }
 
 // A function to record the given hashkey and mark it as last to be evicted
@@ -159,10 +162,10 @@ func (c *cache) setHashelement(hashkey uint64) *list.Element {
 // evict items according to the eviction policy until there is room.
 // The caller should hold the cache lock.
 func (c *cache) ensureCapacity(toAdd uint64) {
-	mustRemove := (c.size + toAdd) - c.cap
+	mustRemove := int64(c.size+toAdd) - int64(c.cap)
 	for mustRemove > 0 {
 		hash := c.hashList.Back().Value.(uint64)
-		mustRemove -= c.items[hash].Size()
+		mustRemove -= int64(c.items[hash].Size())
 		c.remove(hash)
 	}
 }
@@ -187,4 +190,15 @@ func hashFunc(b []byte) uint64 {
 // returns 64-bit hash
 func gethashkey(k string) uint64 {
 	return hashFunc([]byte(k))
+}
+
+// NewCache returns new object of lrucached
+func NewCache(capacity uint64, ttl, ttc time.Duration) Cache {
+	return &cache{
+		cap:         capacity,
+		items:       map[uint64]*Item{},
+		hashList:    list.New(),
+		timeToLive:  ttl,
+		cleanUpTime: ttc,
+	}
 }
