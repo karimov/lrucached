@@ -42,6 +42,7 @@ type Cache interface {
 	Remove(key string)
 	// Return all cached items size in byte
 	Size() uint64
+	Len() int
 }
 
 type cache struct {
@@ -77,6 +78,13 @@ func (c *cache) Size() uint64 {
 
 	return c.size
 
+}
+
+func (c *cache) Len() int {
+	c.Lock()
+	defer c.Unlock()
+
+	return len(c.items)
 }
 
 // Set method stores new item to the cache, overwrites existing item
@@ -130,7 +138,7 @@ func (c *cache) set(key string, data []byte) {
 	c.size += size
 }
 
-// Give a new item to store to the cache,
+// Given a new item to store to the cache,
 // check if item's size won't overflow the cache capacity.
 func (c *cache) checkSize(size uint64) error {
 	if c.cap <= size {
