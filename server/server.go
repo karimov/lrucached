@@ -28,8 +28,8 @@ func NewCacheServer(capacity uint64, ttl, ttc time.Duration) *CacheServer {
 	return &CacheServer{
 		mux:       http.NewServeMux(),
 		c:         cache.NewCache(capacity, ttl, ttc),
-		indexPath: fmt.Sprintf("%s/%s/%s", mainURL, version, "cached"),
-		statPath:  fmt.Sprintf("%s/%s/%s", mainURL, version, "stat"),
+		indexPath: fmt.Sprintf("%s/%s/%s/", mainURL, version, "cached"),
+		statPath:  fmt.Sprintf("%s/%s/%s/", mainURL, version, "stat"),
 	}
 }
 
@@ -39,9 +39,8 @@ func (cs *CacheServer) Init() {
 	// Read configs from os.Env
 
 	// Adding handlers
-	println("above line of handler")
 	cs.mux.Handle(cs.indexPath, cs.indexHandler())
-	// cs.mux.Handle(cs.statPath, cs.statHandler())
+	cs.mux.Handle(cs.statPath, cs.statHandler())
 }
 
 // Run launches the server on specified port
@@ -52,7 +51,6 @@ func (cs *CacheServer) Run(addr string) {
 
 func (cs *CacheServer) indexHandler() http.Handler {
 	fn := func(w http.ResponseWriter, r *http.Request) {
-		log.Println(r.URL.Path)
 		switch r.Method {
 		case http.MethodPut:
 			cs.setHandler(w, r)
@@ -87,7 +85,6 @@ func (cs *CacheServer) setHandler(w http.ResponseWriter, r *http.Request) {
 
 func (cs *CacheServer) getHandler(w http.ResponseWriter, r *http.Request) {
 	key := r.URL.Path[len(cs.indexPath):]
-	log.Println(r.URL.Path)
 	if key == "" {
 		responseError(w, http.StatusBadRequest, "empty key passed")
 		return
