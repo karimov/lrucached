@@ -45,7 +45,7 @@ func (cs *CacheServer) Init() {
 
 // Run launches the server on specified port
 func (cs *CacheServer) Run(addr string) {
-	fmt.Printf("Lrucached is now running on %s address\n", addr)
+	log.Printf("Lrucached is now listening on :%s...\n", addr)
 	log.Fatal(http.ListenAndServe(addr, cs.mux))
 }
 
