@@ -1,8 +1,9 @@
 package main
 
 import (
-	"lrucached/server"
 	"time"
+
+	"github.com/karimov/lrucached/server"
 )
 
 func main() {

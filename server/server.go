@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"lrucached/cache"
 	"net/http"
 	"time"
+
+	"github.com/karimov/lrucached/cache"
 )
 
 const (
